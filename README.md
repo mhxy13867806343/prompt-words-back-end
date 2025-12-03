@@ -74,15 +74,18 @@ python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 字段名采用驼峰命名（camelCase）返回给前端。
-\n+## 使用 Docker
-\n+```bash
+
+## 使用 Docker
+
+```bash
 # 构建镜像
 docker build -t prompt-words-back-end .
 
 # 运行容器（加载环境变量并映射端口）
 docker run --rm -p 8000:8000 --env-file .env prompt-words-back-end
 ```
-\n+环境变量示例：
+
+环境变量示例：
 - `DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname`
 - `REDIS_URL=redis://host:6379/0`
 - `SECRET_KEY=your-secret`
@@ -97,3 +100,26 @@ uv run ruff check .
 # 运行简单 API 测试脚本
 uv run python test_api.py
 ```
+
+## 前端对接
+
+- 仓库：`https://github.com/mhxy13867806343/prompt-words-front-end`
+- 接口前缀：同时支持 `/{...}` 与 `/api/{...}`，推荐使用 `/api`
+- Vite 代理示例（将 `/api` 指向后端 `http://localhost:8000`）：
+  ```ts
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      }
+    }
+  }
+  ```
+
+兼容路由：
+- `GET /api/auth/user`
+- `POST /api/prompts/:id/like`，`DELETE /api/prompts/:id/like`
+- `POST /api/prompts/:id/collect`，`DELETE /api/prompts/:id/collect`
+- `GET /api/prompts/my`、`GET /api/prompts/my/likes`、`GET /api/prompts/my/collects`
+- `GET /api/prompts/statistics`（等价 `GET /api/prompts/stats/global`）

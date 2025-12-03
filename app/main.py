@@ -15,6 +15,8 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(prompts.router)
+app.include_router(auth.router, prefix="/api")
+app.include_router(prompts.router, prefix="/api")
 
 @app.on_event("startup")
 async def startup():

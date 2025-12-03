@@ -137,3 +137,18 @@ GET /prompts/stats/global
 ## Notes
 - Swagger: `http://localhost:8000/docs`
 - Response shape: `{code:200, data: {}, msg:"成功"}` with camelCase fields
+
+## Front-end Integration
+- Repo: `https://github.com/mhxy13867806343/prompt-words-front-end`
+- Prefix: both `/{...}` and `/api/{...}` are supported; prefer `/api`
+- Vite proxy example:
+  ```ts
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      }
+    }
+  }
+  ```

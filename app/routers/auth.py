@@ -112,3 +112,14 @@ async def reset_password(request: ResetPassword, db: AsyncSession = Depends(get_
 async def logout(current_user: User = Depends(get_current_user)):
     # Token 在客户端清除即可
     return ResponseModel(msg="退出成功")
+
+@router.get("/user", response_model=ResponseModel)
+async def get_user(current_user: User = Depends(get_current_user)):
+    user_response = UserResponse(
+        id=current_user.id,
+        username=current_user.username,
+        email=current_user.email,
+        state=current_user.state,
+        created_at=current_user.created_at
+    )
+    return ResponseModel(data=user_response.model_dump(by_alias=True))

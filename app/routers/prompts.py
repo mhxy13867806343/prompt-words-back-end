@@ -278,6 +278,28 @@ async def like_prompt(
         await db.commit()
         return ResponseModel(msg="点赞成功")
 
+@router.delete("/{promptId}/like", response_model=ResponseModel)
+async def unlike_prompt(
+    promptId: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    prompt_id = promptId
+    result = await db.execute(select(Prompt).where(and_(Prompt.id == prompt_id, Prompt.state == 1)))
+    prompt = result.scalar_one_or_none()
+    if not prompt:
+        return ResponseModel(code=404, msg="提示词不存在")
+    like_result = await db.execute(
+        select(PromptLike).where(and_(PromptLike.prompt_id == prompt_id, PromptLike.user_id == current_user.id))
+    )
+    existing_like = like_result.scalar_one_or_none()
+    if not existing_like:
+        return ResponseModel(msg="未点赞")
+    await db.delete(existing_like)
+    await db.execute(update(Prompt).where(Prompt.id == prompt_id).values(like_count=Prompt.like_count - 1))
+    await db.commit()
+    return ResponseModel(msg="取消点赞")
+
 @router.post("/{promptId}/favorite", response_model=ResponseModel)
 async def favorite_prompt(
     promptId: int,
@@ -316,6 +338,44 @@ async def favorite_prompt(
         )
         await db.commit()
         return ResponseModel(msg="收藏成功")
+
+@router.delete("/{promptId}/favorite", response_model=ResponseModel)
+async def unfavorite_prompt(
+    promptId: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    prompt_id = promptId
+    result = await db.execute(select(Prompt).where(and_(Prompt.id == prompt_id, Prompt.state == 1)))
+    prompt = result.scalar_one_or_none()
+    if not prompt:
+        return ResponseModel(code=404, msg="提示词不存在")
+    fav_result = await db.execute(
+        select(PromptFavorite).where(and_(PromptFavorite.prompt_id == prompt_id, PromptFavorite.user_id == current_user.id))
+    )
+    existing_fav = fav_result.scalar_one_or_none()
+    if not existing_fav:
+        return ResponseModel(msg="未收藏")
+    await db.delete(existing_fav)
+    await db.execute(update(Prompt).where(Prompt.id == prompt_id).values(favorite_count=Prompt.favorite_count - 1))
+    await db.commit()
+    return ResponseModel(msg="取消收藏")
+
+@router.post("/{promptId}/collect", response_model=ResponseModel)
+async def collect_prompt(
+    promptId: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await favorite_prompt(promptId, current_user, db)
+
+@router.delete("/{promptId}/collect", response_model=ResponseModel)
+async def uncollect_prompt(
+    promptId: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await unfavorite_prompt(promptId, current_user, db)
 
 @router.get("/user/my-prompts", response_model=ResponseModel)
 async def my_prompts(
@@ -358,6 +418,15 @@ async def my_prompts(
     
     response = PromptListResponse(list=prompt_list, total=total, page=page, page_size=page_size)
     return ResponseModel(data=response.model_dump(by_alias=True))
+
+@router.get("/my", response_model=ResponseModel)
+async def my_prompts_alias(
+    page: int = 1,
+    pageSize: int = 10,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await my_prompts(page, pageSize, current_user, db)
 
 @router.get("/user/favorites", response_model=ResponseModel)
 async def my_favorites(
@@ -402,6 +471,15 @@ async def my_favorites(
     response = PromptListResponse(list=prompt_list, total=total, page=page, page_size=page_size)
     return ResponseModel(data=response.model_dump(by_alias=True))
 
+@router.get("/my/collects", response_model=ResponseModel)
+async def my_collects_alias(
+    page: int = 1,
+    pageSize: int = 10,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await my_favorites(page, pageSize, current_user, db)
+
 @router.get("/user/likes", response_model=ResponseModel)
 async def my_likes(
     page: int = 1,
@@ -445,6 +523,15 @@ async def my_likes(
     response = PromptListResponse(list=prompt_list, total=total, page=page, page_size=page_size)
     return ResponseModel(data=response.model_dump(by_alias=True))
 
+@router.get("/my/likes", response_model=ResponseModel)
+async def my_likes_alias(
+    page: int = 1,
+    pageSize: int = 10,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await my_likes(page, pageSize, current_user, db)
+
 @router.get("/stats/global", response_model=ResponseModel)
 async def get_stats(db: AsyncSession = Depends(get_db)):
     total_prompts_result = await db.execute(select(func.count(Prompt.id)).where(Prompt.state == 1))
@@ -455,3 +542,59 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     
     stats = StatsResponse(total_prompts=total_prompts, total_views=total_views)
     return ResponseModel(data=stats.model_dump(by_alias=True))
+
+@router.get("/statistics", response_model=ResponseModel)
+async def get_statistics_alias(db: AsyncSession = Depends(get_db)):
+    return await get_stats(db)
+
+@router.get("", response_model=ResponseModel)
+async def list_prompts(
+    page: int = 1,
+    pageSize: int = 10,
+    keyword: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user)
+):
+    page_size = pageSize
+    offset = (page - 1) * page_size
+    base = select(Prompt).where(Prompt.state == 1)
+    if keyword:
+        pattern = f"%{keyword}%"
+        base = base.where(or_(Prompt.title.ilike(pattern), Prompt.content.ilike(pattern)))
+    result = await db.execute(base.order_by(Prompt.created_at.desc()).limit(page_size).offset(offset))
+    prompts = result.scalars().all()
+    count_query = select(func.count(Prompt.id)).where(Prompt.state == 1)
+    if keyword:
+        pattern = f"%{keyword}%"
+        count_query = count_query.where(or_(Prompt.title.ilike(pattern), Prompt.content.ilike(pattern)))
+    count_result = await db.execute(count_query)
+    total = count_result.scalar()
+    prompt_list = []
+    for prompt in prompts:
+        is_liked = False
+        is_favorited = False
+        if current_user:
+            like_result = await db.execute(
+                select(PromptLike).where(and_(PromptLike.prompt_id == prompt.id, PromptLike.user_id == current_user.id))
+            )
+            is_liked = like_result.scalar_one_or_none() is not None
+            fav_result = await db.execute(
+                select(PromptFavorite).where(and_(PromptFavorite.prompt_id == prompt.id, PromptFavorite.user_id == current_user.id))
+            )
+            is_favorited = fav_result.scalar_one_or_none() is not None
+        prompt_list.append(PromptResponse(
+            id=prompt.id,
+            user_id=prompt.user_id,
+            title=prompt.title,
+            content=prompt.content,
+            state=prompt.state,
+            view_count=prompt.view_count,
+            like_count=prompt.like_count,
+            favorite_count=prompt.favorite_count,
+            created_at=prompt.created_at,
+            updated_at=prompt.updated_at,
+            is_liked=is_liked,
+            is_favorited=is_favorited
+        ))
+    response = PromptListResponse(list=prompt_list, total=total, page=page, page_size=page_size)
+    return ResponseModel(data=response.model_dump(by_alias=True))
